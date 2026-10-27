@@ -22,7 +22,8 @@ Typically 30 to 90 s. Needs the Emergent VPN.
 Requirements: Claude Code, `uv`, Python 3.10+, Emergent VPN.
 
 ```bash
-git clone https://github.com/yash-emergent/pod-wake.git ~/mcp-servers/pod-wake
+gh auth login            # once, with your GitHub account (the repo is private)
+gh repo clone yash-emergent/pod-wake ~/mcp-servers/pod-wake
 chmod +x ~/mcp-servers/pod-wake/*.sh ~/mcp-servers/pod-wake/*.py
 claude mcp add --scope user pod-wake -- "$(which uv)" run --script ~/mcp-servers/pod-wake/pod_wake_mcp.py
 claude mcp get pod-wake   # should say Connected
