@@ -30,7 +30,7 @@ Copy-Item $Settings "$Settings.bak-podwake-$(Get-Date -Format yyyyMMddHHmmss)"
 
 $HookPy = Join-Path $Here "pretool_hook.py"
 $env:POD_WAKE_PY = $Py; $env:POD_WAKE_HOOK = $HookPy; $env:POD_WAKE_MATCHER = $Matcher
-& $Py - $Settings @'
+$MergeCode = @'
 import json, os, sys
 path = sys.argv[1]
 data = json.load(open(path, encoding="utf-8"))
@@ -46,6 +46,7 @@ pre.append(entry)
 json.dump(data, open(path, "w", encoding="utf-8"), indent=2)
 print("hook installed")
 '@
+$MergeCode | & $Py - $Settings
 
 Write-Host ""
 Write-Host "Done. Start a NEW Claude Code session, then run /mcp: pod-wake should be listed."
