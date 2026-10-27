@@ -1,72 +1,199 @@
-# pod-wake: keep Emergent preview pods awake for Claude Code
+# pod-wake
 
-Preview pods are deleted by a cron about 30 min after the customer's agent stops. Support edits through
-envcore do not count as activity, so a pod you are editing can vanish mid-ticket. The envcore MCP
-gateway cannot wake pods (`failed to resolve env_key "...": empty IP`). This tool can.
+**Keep Emergent preview pods awake while Claude Code works on them.**
 
-## What is in here
-- `podwake.py` CLI + library (stdlib only). `status <slug>`, `wake <slug>`, `ensure <slug>`.
-- `pod_wake_mcp.py` MCP server with `pod_status(env_key)` and `wake_pod(env_key, timeout_sec)`.
-- `pretool_hook.sh` / `pretool_hook.py` Claude Code PreToolUse hook for envcore-gateway execute and
-  browser tools: reads `env_key` from the tool input, wakes the pod if asleep, then lets the call proceed.
-  Silent when awake. Never blocks a call.
+A small, dependency-free toolkit for Emergent support engineers: a CLI, an MCP server that gives Claude two tools (`pod_status`, `wake_pod`), and a Claude Code hook that wakes a sleeping preview pod automatically before any envcore-gateway command runs.
 
-`env_key` = app slug (the part before `.preview.emergentagent.com`), pod name, or the preview URL.
+---
 
-## How it wakes
-`GET http://envcore.int.apis.emergentagent.com/api/v2/env/proxy/health?env_key=<slug>&port=8010`
-runs envcore's EnvEnsurer (restart via ensure-environment, wait for the new IP, health check on 8010).
-Typically 30 to 90 s. Needs the Emergent VPN.
+## Why
 
-## Install (5 minutes)
-Requirements: Claude Code, `uv`, Python 3.10+, Emergent VPN.
+Emergent preview pods are paused by a cron job about 30 minutes after the customer's agent stops. Only agent activity counts as "active": edits made through envcore and traffic to the preview URL do not. So a pod you are fixing on a ticket is on a 30-minute fuse, and when it goes, every envcore-gateway call fails with:
 
-```bash
-gh auth login            # once, with your GitHub account (the repo is private)
-gh repo clone yash-emergent/pod-wake ~/mcp-servers/pod-wake
-chmod +x ~/mcp-servers/pod-wake/*.sh ~/mcp-servers/pod-wake/*.py
-claude mcp add --scope user pod-wake -- "$(which uv)" run --script ~/mcp-servers/pod-wake/pod_wake_mcp.py
-claude mcp get pod-wake   # should say Connected
+```
+failed to resolve env_key "<slug>": empty IP
 ```
 
-Add the hook to `~/.claude/settings.json` (merge into an existing `hooks` block; use your real home path):
+Until now the fix was manual: open the app in the Emergent UI, press wake, wait, retry. pod-wake removes that loop.
+
+## Architecture
+
+```mermaid
+flowchart LR
+    subgraph laptop["Your laptop"]
+        CC["Claude Code"]
+        HK["PreToolUse hook<br/>pretool_hook.py"]
+        MCP["pod-wake MCP server<br/>pod_wake_mcp.py"]
+        LIB["podwake.py<br/>status / wake / ensure"]
+        CC -- "envcore-gateway call" --> HK
+        CC -- "pod_status / wake_pod" --> MCP
+        HK --> LIB
+        MCP --> LIB
+    end
+    subgraph vpn["Emergent internal network (VPN)"]
+        EC["envcore<br/>v2 proxy + EnvEnsurer"]
+        AS["agent service<br/>ensure-environment"]
+        POD["preview pod<br/>agent on :8010"]
+        LIB -- "GET /api/v2/env/proxy/health" --> EC
+        EC -- "restart if no IP" --> AS
+        AS -- "restore from volume" --> POD
+        EC -- "health check" --> POD
+    end
+```
+
+## How a wake happens
+
+```mermaid
+flowchart TD
+    A["Claude calls an envcore-gateway tool"] --> B["Hook reads env info for the slug"]
+    B --> C{"Pod has an IP?"}
+    C -- "yes" --> F["Tool call proceeds"]
+    C -- "no" --> D["GET envcore v2 proxy /health for the slug"]
+    D --> E["EnvEnsurer restarts the environment,<br/>waits for the new IP, health-checks port 8010"]
+    E -- "about 30 to 90 s" --> F
+```
+
+envcore exposes two proxy routes. The v1 route and the MCP gateway do a plain lookup and stop on an empty IP. The v2 route is wired to envcore's EnvEnsurer, which restores the pod from its kept volume, polls for the new IP, health-checks the pod agent, and only then forwards the request. pod-wake sends one GET to that route and waits for the healthy answer. The route is internal and reachable only on the Emergent VPN.
+
+```mermaid
+sequenceDiagram
+    participant C as Claude Code
+    participant H as pod-wake
+    participant E as envcore
+    participant A as agent service
+    participant P as preview pod
+    C->>H: execute_tool(env_key)
+    H->>E: GET /api/v1/env/info?env_key
+    E-->>H: pod_ip = "" (asleep)
+    H->>E: GET /api/v2/env/proxy/health?env_key&port=8010
+    E->>A: POST ensure-environment
+    A->>P: restore pod from volume
+    P-->>A: running, new IP
+    E->>P: GET /health on :8010
+    P-->>E: 200 healthy
+    E-->>H: 200 {"status":"healthy"}
+    H-->>C: proceed (note: pod was woken, 41.7 s)
+    C->>E: execute_tool runs on the live pod
+```
+
+Measured on a real sleeping pod: asleep to healthy with a new IP in 41.7 seconds, one attempt.
+
+## Pod lifecycle, for context
+
+```mermaid
+stateDiagram-v2
+    [*] --> Running
+    Running --> Asleep: ~30 min after the agent stops (cron pause)
+    Asleep --> Running: wake (UI button, deploy, or pod-wake)
+    Asleep --> Archived: ~90 min more idle
+    Archived --> Running: wake, slower (snapshot restore)
+```
+
+## What is in the box
+
+| File | Purpose |
+| --- | --- |
+| `podwake.py` | CLI and library. Standard library only. `status`, `wake`, `ensure`. |
+| `pod_wake_mcp.py` | Stdio MCP server exposing `pod_status(env_key)` and `wake_pod(env_key, timeout_sec)`. |
+| `pretool_hook.py` / `pretool_hook.sh` | Claude Code PreToolUse hook for envcore-gateway execute and browser tools. |
+| `install.sh` | Registers the MCP server and merges the hook into `~/.claude/settings.json` (with a backup). |
+| `settings.example.json` | The hook snippet, if you prefer to merge it by hand. |
+
+`env_key` accepts the app slug (the part before `.preview.emergentagent.com`), the pod name, or the full preview URL.
+
+## Requirements
+
+- macOS or Linux with [Claude Code](https://claude.com/claude-code)
+- [`uv`](https://docs.astral.sh/uv/) on your `PATH` (runs the MCP server with its one dependency)
+- Python 3.10 or newer
+- Emergent VPN connected
+
+## Install
+
+```bash
+git clone https://github.com/yash-emergent/pod-wake.git ~/mcp-servers/pod-wake
+~/mcp-servers/pod-wake/install.sh
+```
+
+The script registers the `pod-wake` MCP server in your user scope, backs up `~/.claude/settings.json`, and merges in the hook. Then **start a new Claude Code session**: MCP servers and hooks load at session start. `/mcp` should list `pod-wake` with two tools.
+
+Prefer to do it by hand? Register the server and merge `settings.example.json` into your settings:
+
+```bash
+claude mcp add --scope user pod-wake -- "$(which uv)" run --script ~/mcp-servers/pod-wake/pod_wake_mcp.py
+```
+
+Optional, so Claude uses it unprompted. Add to `~/.claude/CLAUDE.md`:
+
+> If a preview pod is asleep or envcore-gateway returns "empty IP", run pod-wake `wake_pod` instead of asking me to wake it in the UI.
+
+## Usage
+
+**In Claude Code**
+
+```
+pod_status for my-app-42
+wake_pod my-app-42
+```
+
+**From the terminal**
+
+```bash
+~/mcp-servers/pod-wake/podwake.py status my-app-42
+~/mcp-servers/pod-wake/podwake.py wake   my-app-42 --timeout 180
+~/mcp-servers/pod-wake/podwake.py ensure my-app-42     # wake only if asleep or unhealthy
+```
+
+Every command prints JSON. Example wake result:
 
 ```json
 {
-  "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "mcp__envcore-gateway__execute_tool|mcp__envcore-gateway__execute_playwright_script|mcp__envcore-gateway__browser_execute_code",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "/Users/<you>/mcp-servers/pod-wake/pretool_hook.sh",
-            "timeout": 180,
-            "statusMessage": "pod-wake: checking preview pod is awake"
-          }
-        ]
-      }
-    ]
-  }
+  "env_key": "my-app-42",
+  "preview_url": "https://my-app-42.preview.emergentagent.com",
+  "before": "asleep",
+  "ok": true,
+  "action": "woken",
+  "pod_ip": "10.103.4.180",
+  "attempts": 1,
+  "seconds": 41.7
 }
 ```
 
-Start a new Claude Code session (servers and hooks load at session start). `/mcp` should list `pod-wake`.
+**The hook** needs nothing from you. Before each envcore-gateway execute or browser call it checks the pod, wakes it if needed, and lets the call proceed. It is silent when the pod is awake, adds a one-line note to Claude's context when it woke the pod, and never blocks a call if the wake fails.
 
-Optional: add to your `~/.claude/CLAUDE.md`: "If a preview pod is asleep or envcore-gateway returns
-empty IP, run pod-wake `wake_pod` instead of asking me to wake it in the UI."
+## Testing on your laptop
 
-## Test
-1. `pod_status <slug>` on a running test app: `state: running` with a `pod_ip`.
-2. `wake_pod <slug>` on a test app asleep for 30+ min: `action: woken`, new `pod_ip`, 30 to 90 s.
-3. With the pod asleep, run any envcore-gateway `execute_bash` on it: it succeeds first try and the
-   hook adds a one-line note that the pod was woken.
+Use your own test app, not a customer's.
 
-## Known limits
-- VPN only. Off VPN: `unreachable`.
-- envcore restart cooldown: 10 min per env. A second wake inside the window may time out; wait and retry.
-- Pods asleep for 90+ min are archived and restore slower: pass `timeout_sec: 300` or wake twice.
-- Backup failures cannot be fixed by waking; use the UI or escalate.
-- Agent-only jobs (wingman, moltbot, brainstorm) have no pod.
-- Each wake runs the pod for at least 30 min of compute. The hook fires only on real commands.
-- Only restores pods. Never reads, edits or deletes app files or data.
+1. **Status on a running pod.** `pod_status <slug>` returns `state: running` and a `pod_ip`.
+2. **Wake a sleeping pod.** Pick an app idle for 30+ minutes, confirm `state: asleep`, then `wake_pod <slug>`. Expect `action: woken`, a new `pod_ip`, and 30 to 90 seconds. Open the preview URL to confirm.
+3. **Automatic wake.** With the pod asleep again, ask Claude to run any envcore-gateway command on it, for example `execute_bash` with `echo hi`. It should succeed first try, with the hook's note that the pod was woken.
+
+`state: unreachable` with a VPN hint means the VPN is off. `not_found` means envcore does not know the slug.
+
+## Limits and safety
+
+- **Restores only.** The tool never reads, edits or deletes app files or data. It uses the same restore path as the deploy pipeline and the customer's own wake button.
+- **VPN required.** Off VPN every call returns `unreachable`.
+- **10-minute cooldown.** envcore refuses a second restart of the same environment within 10 minutes. Wait and retry.
+- **Archived pods restore slower.** After about 90 minutes asleep the volume is archived. Pass `timeout_sec: 300` or wake twice.
+- **Failed backups cannot be woken.** If the pod's backup failed, no wake path restores it. Use the UI or escalate.
+- **Agent-only jobs have no pod.** Wingman, moltbot and brainstorm jobs cannot be woken.
+- **Each wake costs compute.** A woken pod runs for at least 30 minutes. The hook fires only on real commands, never on tool discovery.
+- **In-memory state resets.** A wake creates a new pod. Files and the database persist.
+
+## Configuration
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `ENVCORE_BASE_URL` | internal envcore host | Override for dev or canary environments |
+| `ENVCORE_POD_PORT` | `8010` | Pod agent port used for the health check |
+| `POD_WAKE_TIMEOUT` | `180` | Default wake timeout in seconds |
+
+## Contributing
+
+Issues and pull requests are welcome. Keep `podwake.py` free of third-party dependencies so the hook stays fast and portable. Run the three tests above against your own test app before opening a PR.
+
+## License
+
+[MIT](LICENSE)

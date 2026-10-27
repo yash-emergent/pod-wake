@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "mcp__envcore-gateway__execute_tool|mcp__envcore-gateway__execute_playwright_script|mcp__envcore-gateway__browser_execute_code",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/<you>/mcp-servers/pod-wake/pretool_hook.sh",
+            "timeout": 180,
+            "statusMessage": "pod-wake: checking preview pod is awake"
+          }
+        ]
+      }
+    ]
+  }
+}
