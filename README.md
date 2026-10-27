@@ -113,7 +113,7 @@ stateDiagram-v2
 
 - [Claude Code](https://claude.com/claude-code) on macOS, Linux or Windows
 - [`uv`](https://docs.astral.sh/uv/) on your `PATH` (runs the MCP server with its one dependency)
-- Python 3.10 or newer (`python3` on macOS/Linux, `python` or the `py` launcher on Windows)
+- Python 3.9 or newer (`python3` on macOS/Linux, `python` or the `py` launcher on Windows)
 - Emergent VPN connected
 
 Everything is plain Python, so the CLI, the MCP server and the hook run on all three platforms. Only the installer differs.
@@ -159,12 +159,12 @@ Context: Emergent preview pods go to sleep about 30 minutes after the customer's
 
 From now on, whenever a preview pod is asleep, or an envcore-gateway call fails with "empty IP", do not ask me to wake it from the Emergent UI. Instead:
 1. Run pod_status on the slug to confirm it is asleep.
-2. Run wake_pod on the slug and wait for it to report action: woken (usually 30 to 90 seconds).
+2. Run wake_pod on the slug and wait for it to report action: woken or already_awake (usually 30 to 90 seconds). Both mean the pod is up; do not call it again.
 3. Continue exactly what you were doing before.
 
 Also, when I give you a ticket or a slug and ask you to investigate or change something on the preview pod, check pod_status first and wake it if needed before running commands.
 
-If wake_pod times out, or returns not_found or unreachable, show me the exact output and stop. Do not retry more than twice; envcore has a 10 minute cooldown between restarts.
+If wake_pod fails, times out, or returns not_found or unreachable, show me the exact output and stop. Do not call it again; envcore has a 10 minute cooldown between restarts.
 
 Please save this as a permanent memory so it applies in every future session.
 ```
@@ -178,7 +178,7 @@ Prefer a one-liner? Add this to your `~/.claude/CLAUDE.md`:
 Use one of your own test apps, not a customer's.
 
 1. **Status on a running pod.** Ask Claude: `pod_status for <slug>`. Expect `state: running` and a `pod_ip`.
-2. **Wake a sleeping pod.** Pick a test app idle for 30+ minutes, confirm `state: asleep`, then `wake_pod <slug>`. Expect `action: woken`, a new `pod_ip`, and 30 to 90 seconds. Open the preview URL to confirm.
+2. **Wake a sleeping pod.** Pick a test app idle for 30+ minutes, confirm `state: asleep`, then `wake_pod <slug>`. Expect `action: woken`, a new `pod_ip`, and 30 to 90 seconds. (`already_awake` means it was already up; that is also success.) Open the preview URL to confirm.
 3. **Automatic wake.** With the pod asleep again, ask Claude to run any envcore-gateway command on it, for example `execute_bash` with `echo hi`. It should succeed first try, with the hook's note that the pod was woken.
 
 `state: unreachable` with a VPN hint means the VPN is off. `not_found` means envcore does not know the slug.
@@ -215,14 +215,14 @@ wake_pod my-app-42
 }
 ```
 
-**The hook** needs nothing from you. Before each envcore-gateway execute or browser call it checks the pod, wakes it if needed, and lets the call proceed. Silent when the pod is awake, one line in Claude's context when it woke the pod, and it never blocks a call if the wake fails.
+**The hook** needs nothing from you. Before each envcore-gateway execute or browser call it reads the pod's info (one quick request). If the pod has no IP it wakes it and lets the call proceed; if the pod has an IP it does nothing at all, so a running pod is never restarted by the hook. Silent when the pod is awake, one line in Claude's context when it woke the pod, and it never blocks a call if the wake fails. Parallel calls on the same pod share one wake.
 
 ## Good to know
 
 - **Restores only.** The tool never reads, edits or deletes app files or data. It uses the same restore path as the deploy pipeline and the customer's own wake button.
 - **VPN required.** Off VPN every call returns `unreachable`.
-- **10 minute cooldown.** envcore refuses a second restart of the same environment within 10 minutes. Wait and retry.
-- **Archived pods restore slower.** After about 90 minutes asleep the volume is archived. Pass `timeout_sec: 300` or wake twice.
+- **10 minute cooldown.** envcore refuses a second restart of the same environment within 10 minutes. The tool makes at most 3 attempts and then stops with a clear error; wait and retry later.
+- **Archived pods restore slower.** After about 90 minutes asleep the volume is archived. Pass `timeout_sec: 300`.
 - **Failed backups cannot be woken.** If the pod's backup failed, no wake path restores it. Use the UI or escalate.
 - **Agent-only jobs have no pod.** Wingman, moltbot and brainstorm jobs cannot be woken.
 - **Each wake costs compute.** A woken pod runs for at least 30 minutes. The hook fires only on real commands, never on tool discovery.

@@ -18,6 +18,8 @@ def main() -> int:
         data = json.loads(sys.stdin.read() or "{}")
     except ValueError:
         return 0
+    if not isinstance(data, dict):
+        return 0
     tool = data.get("tool_name", "")
     if not tool.startswith("mcp__envcore-gateway__"):
         return 0

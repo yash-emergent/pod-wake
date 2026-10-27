@@ -9,12 +9,12 @@ Context: Emergent preview pods go to sleep about 30 minutes after the customer's
 
 From now on, whenever a preview pod is asleep, or an envcore-gateway call fails with "empty IP", do not ask me to wake it from the Emergent UI. Instead:
 1. Run pod_status on the slug to confirm it is asleep.
-2. Run wake_pod on the slug and wait for it to report action: woken (usually 30 to 90 seconds).
+2. Run wake_pod on the slug and wait for it to report action: woken or already_awake (usually 30 to 90 seconds). Both mean the pod is up; do not call it again.
 3. Continue exactly what you were doing before.
 
 Also, when I give you a ticket or a slug and ask you to investigate or change something on the preview pod, check pod_status first and wake it if needed before running commands.
 
-If wake_pod times out, or returns not_found or unreachable, show me the exact output and stop. Do not retry more than twice; envcore has a 10 minute cooldown between restarts.
+If wake_pod fails, times out, or returns not_found or unreachable, show me the exact output and stop. Do not call it again; envcore has a 10 minute cooldown between restarts.
 
 Please save this as a permanent memory so it applies in every future session.
 ```

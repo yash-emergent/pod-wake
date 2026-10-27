@@ -1,6 +1,6 @@
 # /// script
 # requires-python = ">=3.10"
-# dependencies = ["mcp>=1.2,<2"]
+# dependencies = ["mcp>=1.6,<2"]
 # ///
 """pod-wake MCP: let Claude check and wake Emergent preview pods (envcore EnvEnsurer path).
 
@@ -38,7 +38,7 @@ async def pod_status(env_key: str) -> dict:
 
 @mcp.tool()
 async def wake_pod(env_key: str, timeout_sec: int = 180) -> dict:
-    """Wake a sleeping preview pod and wait until it is healthy (typically 30-90 s). Idempotent: returns already_awake if it is up.
+    """Wake a sleeping preview pod and wait until it is healthy (typically 30-90 s). Idempotent: returns action already_awake if it is already up (that is success, do not call again).
     Changes state on the customer's environment (restores the pod); use only when you need to work on it."""
     timeout_sec = max(30, min(int(timeout_sec), 600))
     return await asyncio.to_thread(podwake.wake, env_key, timeout_sec, False)
