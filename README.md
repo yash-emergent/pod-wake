@@ -6,7 +6,7 @@ pod-wake is a small Claude Code add-on for Emergent support work. It gives Claud
 
 It is a small tool, but it saves you a few minutes every time a pod falls asleep mid-ticket, and that adds up.
 
-> **v1, built by Yashwanth.** It works on the cases below, but it has not seen every pod and every laptop yet. If something breaks or looks odd, Slack **@yashwanth** with the slug and the exact tool output, and it will get fixed.
+> **v1, built by Yashwanth.** It works on the cases below, but it has not seen every pod and every laptop yet. If something breaks or looks odd, message me on Slack ([**@yashwanth**](https://emergentlabsinc.slack.com/team/U0BEBR4TE7R)) with the slug and the exact tool output, and it will get fixed.
 
 ---
 
@@ -239,7 +239,7 @@ wake_pod my-app-42
 
 ## Found a problem? Have an idea?
 
-This is v1. Slack **@yashwanth** with the slug, what you asked Claude to do, and the exact tool output, or open an issue here. Pull requests are welcome too; keep `podwake.py` free of third-party dependencies so the hook stays fast, and run the three checks in step 4 against your own test app first.
+This is v1. Message me on Slack ([**@yashwanth**](https://emergentlabsinc.slack.com/team/U0BEBR4TE7R)) with the slug, what you asked Claude to do, and the exact tool output, or open an issue here. Pull requests are welcome too; keep `podwake.py` free of third-party dependencies so the hook stays fast, and run the three checks in step 4 against your own test app first.
 
 ## License
 
