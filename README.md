@@ -84,7 +84,7 @@ sequenceDiagram
     C->>E: execute_tool runs on the live pod
 ```
 
-Measured on a real sleeping pod: asleep to healthy with a new IP in 41.7 seconds, one attempt.
+Measured on real sleeping pods: asleep to healthy with a new IP in 28 to 42 seconds, one attempt each, including pods archived for weeks.
 
 ```mermaid
 stateDiagram-v2
@@ -222,7 +222,7 @@ wake_pod my-app-42
 - **Restores only.** The tool never reads, edits or deletes app files or data. It uses the same restore path as the deploy pipeline and the customer's own wake button.
 - **VPN required.** Off VPN every call returns `unreachable`.
 - **10 minute cooldown.** envcore refuses a second restart of the same environment within 10 minutes. The tool makes at most 3 attempts and then stops with a clear error; wait and retry later.
-- **Archived pods restore slower.** After about 90 minutes asleep the volume is archived. Pass `timeout_sec: 300`.
+- **Archived pods can restore slower.** After about 90 minutes asleep the volume is archived. In testing, pods archived for a day and for five weeks both came back in about 30 seconds, but if a wake times out, retry once with `timeout_sec: 300`.
 - **Failed backups cannot be woken.** If the pod's backup failed, no wake path restores it. Use the UI or escalate.
 - **Agent-only jobs have no pod.** Wingman, moltbot and brainstorm jobs cannot be woken.
 - **Each wake costs compute.** A woken pod runs for at least 30 minutes. The hook fires only on real commands, never on tool discovery.
