@@ -96,28 +96,42 @@ stateDiagram-v2
 | `podwake.py` | CLI and library. Standard library only. `status`, `wake`, `ensure`. |
 | `pod_wake_mcp.py` | Stdio MCP server exposing `pod_status(env_key)` and `wake_pod(env_key, timeout_sec)`. |
 | `pretool_hook.py` / `pretool_hook.sh` | Claude Code PreToolUse hook for envcore-gateway execute and browser tools. |
-| `install.sh` | Registers the MCP server and merges the hook into `~/.claude/settings.json` (with a backup). |
+| `install.sh` | macOS/Linux installer: registers the MCP server and merges the hook into `~/.claude/settings.json` (backup kept). |
+| `install.ps1` | Windows installer: same steps in PowerShell, hook wired to Python directly. |
 | `settings.example.json` | The hook snippet, if you prefer to merge it by hand. |
 
 `env_key` accepts the app slug (the part before `.preview.emergentagent.com`), the pod name, or the full preview URL.
 
 ## Requirements
 
-- macOS or Linux with [Claude Code](https://claude.com/claude-code)
+- [Claude Code](https://claude.com/claude-code) on macOS, Linux or Windows
 - [`uv`](https://docs.astral.sh/uv/) on your `PATH` (runs the MCP server with its one dependency)
-- Python 3.10 or newer
+- Python 3.10 or newer (`python3` on macOS/Linux, `python` or the `py` launcher on Windows)
 - Emergent VPN connected
 
+Everything is plain Python, so the CLI, the MCP server and the hook run on all three platforms. The installers differ: `install.sh` for macOS/Linux, `install.ps1` for Windows.
+
 ## Install
+
+**macOS / Linux**
 
 ```bash
 git clone https://github.com/yash-emergent/pod-wake.git ~/mcp-servers/pod-wake
 ~/mcp-servers/pod-wake/install.sh
 ```
 
+**Windows (PowerShell)**
+
+```powershell
+git clone https://github.com/yash-emergent/pod-wake.git $HOME\mcp-servers\pod-wake
+powershell -ExecutionPolicy Bypass -File $HOME\mcp-servers\pod-wake\install.ps1
+```
+
+On Windows the hook is wired to Python directly (no shell wrapper), so Git Bash is not required. Run `podwake.py` as `python podwake.py status <slug>`.
+
 The script registers the `pod-wake` MCP server in your user scope, backs up `~/.claude/settings.json`, and merges in the hook. Then **start a new Claude Code session**: MCP servers and hooks load at session start. `/mcp` should list `pod-wake` with two tools.
 
-Prefer to do it by hand? Register the server and merge `settings.example.json` into your settings:
+Prefer to do it by hand? Register the server and merge `settings.example.json` into your settings (on Windows point the hook `command` at `python.exe` with `args: ["<path>\\pretool_hook.py"]` instead of the `.sh` wrapper):
 
 ```bash
 claude mcp add --scope user pod-wake -- "$(which uv)" run --script ~/mcp-servers/pod-wake/pod_wake_mcp.py
@@ -176,6 +190,7 @@ Use your own test app, not a customer's.
 - **Restores only.** The tool never reads, edits or deletes app files or data. It uses the same restore path as the deploy pipeline and the customer's own wake button.
 - **VPN required.** Off VPN every call returns `unreachable`.
 - **10-minute cooldown.** envcore refuses a second restart of the same environment within 10 minutes. Wait and retry.
+- **Windows is untested so far.** The code is portable, but the first Windows install should report back (see Contributing).
 - **Archived pods restore slower.** After about 90 minutes asleep the volume is archived. Pass `timeout_sec: 300` or wake twice.
 - **Failed backups cannot be woken.** If the pod's backup failed, no wake path restores it. Use the UI or escalate.
 - **Agent-only jobs have no pod.** Wingman, moltbot and brainstorm jobs cannot be woken.
